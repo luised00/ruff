@@ -315,6 +315,47 @@ The rules for this behavior are as follows:
 
 Note that in these last two cases, the behavior of Ruff may differ depending on the working directory from which it is invoked.
 
+### Inline script metadata
+
+Enable [preview mode](preview.md) with `--preview` or top-level `preview = true` to use
+PEP 723 metadata for linting and formatting. With preview disabled, Ruff ignores the
+script's `requires-python` and `[tool.ruff]` settings.
+
+A Python script without a `[tool.ruff]` table uses the project's lint and format settings.
+It can still declare its own minimum Python version.
+
+```python
+# /// script
+# requires-python = ">=3.12"
+# ///
+```
+
+When linting or formatting this file, Ruff targets Python 3.12 even if the project specifies
+a different `target-version` or a matching `per-file-target-version`. Ruff infers the minimum
+Python minor version from the constraint's lower bound. Invalid requirements produce a
+configuration error. A constraint without a lower bound requires an explicit inline target version.
+If the script omits `requires-python`, the project's target version applies.
+
+Adding a `[tool.ruff]` table gives the script its own configuration. User-level settings still
+apply beneath the inline settings, and other options use Ruff's defaults. For example, this script enables only `F401`, regardless of the project's
+rule selection.
+
+```python
+# /// script
+# requires-python = ">=3.12"
+# [tool.ruff.lint]
+# select = ["F401"]
+# ///
+```
+
+To inherit from a particular configuration file, set `extend` in `[tool.ruff]`, for example
+`extend = "../pyproject.toml"`. Relative paths in inline settings are resolved from the script's
+directory. A target version set in the inline table takes precedence over the script's
+`requires-python`. An explicit `--config path/to/ruff.toml` replaces the script's settings,
+including its Python requirement. Dedicated CLI flags and `--config "key=value"` overrides still apply.
+`--isolated` ignores inline Ruff settings as well as project configuration files.
+The project configuration still controls file discovery and invocation-wide options such as `fix`.
+
 ## Python file discovery
 
 When passed a path on the command-line, Ruff will automatically discover all Python files in that
