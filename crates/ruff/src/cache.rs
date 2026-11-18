@@ -520,6 +520,9 @@ mod tests {
     use ruff_linter::settings::types::UnsafeFixes;
     use ruff_python_ast::PySourceType;
     use ruff_workspace::Settings;
+    use ruff_workspace::resolver::ResolvedSettings;
+
+    use crate::args::ConfigArguments;
 
     use crate::cache::{self, ChangeData, FileCache, FileCacheData, FileCacheKey};
     use crate::cache::{Cache, RelativePathBuf};
@@ -540,8 +543,13 @@ mod tests {
             ..Settings::default()
         };
 
+        let project = ResolvedSettings {
+            settings,
+            ..Default::default()
+        };
+        let overrides = ConfigArguments::default();
         let package_root = fs::canonicalize(package_root).unwrap();
-        let cache = Cache::open(package_root.clone(), &settings);
+        let cache = Cache::open(package_root.clone(), &project.settings);
         assert_eq!(cache.changes.lock().unwrap().len(), 0);
 
         let mut paths = Vec::new();
@@ -572,7 +580,7 @@ mod tests {
                 let mut diagnostics = lint_path(
                     &path,
                     Some(PackageRoot::root(&package_root)),
-                    &settings.linter,
+                    &project.with_overrides(&overrides),
                     Some(&cache),
                     flags::Noqa::Enabled,
                     flags::FixMode::Generate,
@@ -597,7 +605,7 @@ mod tests {
 
         cache.persist().unwrap();
 
-        let cache = Cache::open(package_root.clone(), &settings);
+        let cache = Cache::open(package_root.clone(), &project.settings);
         assert_ne!(cache.package.files.len(), 0);
 
         paths_with_diagnostics.sort();
@@ -621,7 +629,7 @@ mod tests {
             got_diagnostics += lint_path(
                 &path,
                 Some(PackageRoot::root(&package_root)),
-                &settings.linter,
+                &project.with_overrides(&overrides),
                 Some(&cache),
                 flags::Noqa::Enabled,
                 flags::FixMode::Generate,
@@ -1008,7 +1016,7 @@ mod tests {
 
     struct TestCache {
         package_root: PathBuf,
-        settings: Settings,
+        project: ResolvedSettings,
     }
 
     impl TestCache {
@@ -1035,7 +1043,10 @@ mod tests {
 
             Self {
                 package_root,
-                settings,
+                project: ResolvedSettings {
+                    settings,
+                    ..Default::default()
+                },
             }
         }
 
@@ -1053,7 +1064,7 @@ mod tests {
         }
 
         fn open(&self) -> Cache {
-            Cache::open(self.package_root.clone(), &self.settings)
+            Cache::open(self.package_root.clone(), &self.project.settings)
         }
 
         fn lint_file_with_cache(
@@ -1064,7 +1075,7 @@ mod tests {
             lint_path(
                 &self.package_root.join(path),
                 Some(PackageRoot::root(&self.package_root)),
-                &self.settings.linter,
+                &self.project.with_overrides(&ConfigArguments::default()),
                 Some(cache),
                 flags::Noqa::Enabled,
                 flags::FixMode::Generate,
@@ -1080,7 +1091,7 @@ mod tests {
             let file_path = self.package_root.join(path);
             format_path(
                 &file_path,
-                &self.settings.formatter,
+                &self.project.settings.formatter,
                 SourceType::Python(PySourceType::Python),
                 FormatMode::Write,
                 None,
@@ -1091,7 +1102,7 @@ mod tests {
 
     impl Drop for TestCache {
         fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.settings.cache_dir);
+            let _ = fs::remove_dir_all(&self.project.settings.cache_dir);
         }
     }
 }

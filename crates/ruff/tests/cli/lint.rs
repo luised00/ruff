@@ -6,6 +6,7 @@ use std::process::{Command, Stdio};
 use std::str;
 
 use anyhow::Result;
+use indoc::{formatdoc, indoc};
 
 use insta_cmd::{assert_cmd_snapshot, get_cargo_bin};
 
@@ -4118,6 +4119,215 @@ fn a005_module_shadowing_strict_default() -> Result<()> {
     ----- stderr -----
     ");
 
+    Ok(())
+}
+
+#[test]
+fn inline_script_configuration() -> Result<()> {
+    let test = CliTest::with_file(
+        "ruff.toml",
+        indoc! {r#"
+            preview = true
+            lint.select = ['T201']
+        "#},
+    )?;
+    for (filename, metadata) in [
+        ("inherited.py", "[tool.other]"),
+        ("defaults.py", "[tool.ruff]"),
+        (
+            "configured.py",
+            indoc! {r#"
+                [tool.ruff.lint]
+                # select = ['F821']
+            "#}
+            .trim_end(),
+        ),
+    ] {
+        test.write_file(
+            filename,
+            &formatdoc! {r#"
+                # /// script
+                # {metadata}
+                # ///
+                import os
+                print(missing)
+            "#},
+        )?;
+    }
+    assert_cmd_snapshot!(test.check_command().arg("."), @"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    configured.py:6:7: undefined-name: Undefined name `missing`
+    defaults.py:4:1: unsorted-imports: [*] Import block is un-sorted or un-formatted
+    defaults.py:4:8: unused-import: [*] `os` imported but unused
+    defaults.py:5:7: undefined-name: Undefined name `missing`
+    inherited.py:5:1: print: `print` found
+    Found 5 errors.
+    [*] 2 fixable with `--fix` (1 unsafe fix available with `--fix --unsafe-fixes`).
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn inline_script_namespace_packages() -> Result<()> {
+    let test = CliTest::with_file(
+        "ruff.toml",
+        indoc! {r#"
+            preview = true
+            namespace-packages = ['pkg']
+            lint.select = ['N999']
+        "#},
+    )?;
+    let check = || test.check_command().arg("pkg/Invalid-Name.py").output();
+    test.write_file(
+        "pkg/Invalid-Name.py",
+        indoc! {r#"
+            # /// script
+            # tool.ruff.lint.select = ['N999']
+            # ///
+        "#},
+    )?;
+    assert!(check()?.status.success());
+
+    test.write_file(
+        "pkg/Invalid-Name.py",
+        indoc! {r#"
+            # /// script
+            # tool.ruff.lint.select = ['N999']
+            # tool.ruff.namespace-packages = ['.']
+            # ///
+        "#},
+    )?;
+    assert!(str::from_utf8(&check()?.stdout)?.contains("invalid-module-name"));
+    Ok(())
+}
+
+#[test]
+fn invalid_script_python_requirement() -> Result<()> {
+    let test = CliTest::with_file("script.py", "")?;
+    for requirement in ["'<3.12'", "'>=4'", "'invalid'", "42"] {
+        test.write_file(
+            "script.py",
+            &formatdoc! {r#"
+                # /// script
+                # requires-python = {requirement}
+                # ///
+            "#},
+        )?;
+        let output = test
+            .check_command()
+            .args(["--preview", "script.py"])
+            .output()?;
+        assert_eq!(output.status.code(), Some(1), "{requirement}");
+        assert!(
+            str::from_utf8(&output.stdout)?.contains("invalid-script-metadata"),
+            "{requirement}"
+        );
+    }
+
+    test.write_file(
+        "script.py",
+        indoc! {r#"
+            # /// script
+            # requires-python = '<3.12'
+            # tool.ruff.target-version = 'py310'
+            # ///
+        "#},
+    )?;
+    assert!(
+        test.check_command()
+            .args(["--preview", "script.py"])
+            .output()?
+            .status
+            .success()
+    );
+    Ok(())
+}
+
+#[test]
+fn invalid_inline_script_configuration() -> Result<()> {
+    let test = CliTest::with_file(
+        "script.py",
+        indoc! {r#"
+            # /// script
+            # tool.ruff.preview = true
+            # tool.ruff.extend = 'missing.toml'
+            # ///
+        "#},
+    )?;
+    assert!(
+        test.check_command()
+            .arg("script.py")
+            .output()?
+            .status
+            .success()
+    );
+    let output = test
+        .check_command()
+        .args(["--preview", "script.py"])
+        .output()?;
+    assert_eq!(output.status.code(), Some(1));
+    let diagnostics = str::from_utf8(&output.stdout)?;
+    assert!(
+        diagnostics.contains("invalid-script-metadata"),
+        "{diagnostics}"
+    );
+    assert!(diagnostics.contains("missing.toml"), "{diagnostics}");
+    assert!(
+        test.check_command()
+            .args(["--preview", "--isolated", "script.py"])
+            .output()?
+            .status
+            .success()
+    );
+    Ok(())
+}
+
+#[test]
+fn script_requires_python() -> Result<()> {
+    let test = CliTest::with_file(
+        "pyproject.toml",
+        r#"
+[project]
+requires-python = ">=3.10"
+[tool.ruff]
+preview = true
+per-file-target-version = { "old_*.py" = "py39" }
+[tool.ruff.lint]
+select = ["UP045"]
+"#,
+    )?;
+    for (name, metadata) in [
+        ("old_script.py", "requires-python = '>=3.10'"),
+        ("script.py", "requires-python = '>=3.9'"),
+        ("old_fallback.py", "dependencies = []"),
+        ("fallback.py", "dependencies = []"),
+    ] {
+        test.write_file(
+            name,
+            &formatdoc! {r#"
+                # /// script
+                # {metadata}
+                # ///
+                from typing import Optional
+                x: Optional[int]
+            "#},
+        )?;
+    }
+    assert_cmd_snapshot!(test.check_command().arg("."), @"
+    success: false
+    exit_code: 1
+    ----- stdout -----
+    fallback.py:5:4: non-pep604-annotation-optional: [*] Use `X | None` for type annotations
+    old_script.py:5:4: non-pep604-annotation-optional: [*] Use `X | None` for type annotations
+    Found 2 errors.
+    [*] 2 fixable with `--fix`.
+
+    ----- stderr -----
+    ");
     Ok(())
 }
 
