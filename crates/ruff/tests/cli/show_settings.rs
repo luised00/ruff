@@ -1,3 +1,4 @@
+use indoc::{formatdoc, indoc};
 use insta_cmd::assert_cmd_snapshot;
 
 use crate::CliTest;
@@ -62,5 +63,101 @@ fn display_settings_from_nested_directory() -> anyhow::Result<()> {
             .args(["check", "--show-settings", "subdir/test.py"])
     );
 
+    Ok(())
+}
+
+#[test]
+fn script_requires_python_show_settings() -> anyhow::Result<()> {
+    let test = CliTest::with_files([
+        (
+            "ruff.toml",
+            indoc! {r#"
+                target-version = 'py39'
+                lint.preview = true
+                format.preview = true
+            "#},
+        ),
+        (
+            "script.py",
+            indoc! {r#"
+                # /// script
+                # requires-python = '>=3.12'
+                # ///
+            "#},
+        ),
+    ])?;
+    for (flag, version) in [(None, "3.9"), (Some("--preview"), "3.12")] {
+        let output = test
+            .command()
+            .args(["check", "--show-settings", "script.py"])
+            .args(flag)
+            .output()?;
+        assert!(output.status.success());
+        let settings = String::from_utf8(output.stdout)?;
+        assert!(settings.contains(&format!("linter.unresolved_target_version = {version}")));
+        assert!(settings.contains(&format!("formatter.unresolved_target_version = {version}")));
+    }
+    Ok(())
+}
+
+#[test]
+fn inline_script_target_version() -> anyhow::Result<()> {
+    let test = CliTest::with_file(
+        "ruff.toml",
+        indoc! {r#"
+            preview = true
+            target-version = 'py39'
+        "#},
+    )?;
+    for (metadata, expected) in [
+        ("[tool.ruff]", "3.11"),
+        (
+            indoc! {r#"
+                requires-python = '>=3.12'
+                # [tool.ruff]
+            "#}
+            .trim_end(),
+            "3.12",
+        ),
+        (
+            indoc! {r#"
+                requires-python = '>=3.12'
+                # tool.ruff.target-version = 'py310'
+            "#}
+            .trim_end(),
+            "3.10",
+        ),
+        (
+            indoc! {r#"
+                requires-python = '>=3.12'
+                # tool.ruff.extend = 'ruff.toml'
+            "#}
+            .trim_end(),
+            "3.12",
+        ),
+    ] {
+        test.write_file(
+            "script.py",
+            &formatdoc! {r#"
+                # /// script
+                # {metadata}
+                # ///
+            "#},
+        )?;
+        let output = test
+            .command()
+            .args(["check", "--show-settings", "script.py"])
+            .output()?;
+        assert!(output.status.success());
+        let settings = String::from_utf8(output.stdout)?;
+        assert!(settings.contains(&format!(
+            "Settings path: \"{}\"",
+            test.root().join("script.py").display()
+        )));
+        assert!(
+            settings.contains(&format!("formatter.unresolved_target_version = {expected}")),
+            "{metadata}"
+        );
+    }
     Ok(())
 }

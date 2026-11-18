@@ -1,3 +1,4 @@
+use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -31,11 +32,28 @@ pub(crate) fn show_settings(
 
     let resolved = resolver.resolve_with_path(&path);
 
+    let source_type = resolved.settings.linter.extension.get_source_type(&path);
+    let script = if resolved.settings.should_read_script_metadata(source_type)
+        && let Ok(source) = fs::read_to_string(&path)
+    {
+        resolved.with_overrides(config_arguments).resolve_script(
+            Some(&path),
+            source_type,
+            &source,
+        )?
+    } else {
+        None
+    };
+    let (settings, config_path) = script
+        .as_ref()
+        .map_or((&resolved.settings, resolved.config_path()), |script| {
+            (&script.settings, script.config_path())
+        });
     writeln!(writer, "Resolved settings for: \"{}\"", path.display())?;
-    if let Some(settings_path) = resolved.config_path() {
+    if let Some(settings_path) = config_path {
         writeln!(writer, "Settings path: \"{}\"", settings_path.display())?;
     }
-    write!(writer, "{}", resolved.settings)?;
+    write!(writer, "{settings}")?;
 
     Ok(())
 }

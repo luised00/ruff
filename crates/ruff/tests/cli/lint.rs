@@ -4242,6 +4242,98 @@ fn script_cache_respects_configuration_mode() -> Result<()> {
 }
 
 #[test]
+#[cfg(unix)]
+fn inline_script_inherits_user_configuration() -> Result<()> {
+    let test = CliTest::with_files([
+        (
+            "config/ruff/ruff.toml",
+            indoc! {r#"
+                target-version = 'py310'
+                lint.ignore = ['F401']
+            "#},
+        ),
+        (
+            "pyproject.toml",
+            indoc! {r#"
+                project.requires-python = '>=3.12'
+                tool.ruff.preview = true
+                tool.ruff.lint.select = ['T201']
+            "#},
+        ),
+        (
+            "script.py",
+            indoc! {r#"
+                # /// script
+                # [tool.ruff]
+                # ///
+                import os
+                print(missing)
+            "#},
+        ),
+    ])?;
+    let output = test
+        .check_command()
+        .env("HOME", test.root())
+        .env("XDG_CONFIG_HOME", test.root().join("config"))
+        .arg("script.py")
+        .output()?;
+    let stdout = str::from_utf8(&output.stdout)?;
+    assert!(stdout.contains("undefined-name"), "{stdout}");
+    assert!(!stdout.contains("unused-import"), "{stdout}");
+    assert!(!stdout.contains("print: `print`"), "{stdout}");
+    let settings = test
+        .check_command()
+        .env("HOME", test.root())
+        .env("XDG_CONFIG_HOME", test.root().join("config"))
+        .args(["--show-settings", "script.py"])
+        .output()?;
+    assert!(str::from_utf8(&settings.stdout)?.contains("linter.unresolved_target_version = 3.10"));
+    Ok(())
+}
+
+#[test]
+fn explicit_config_overrides_script_settings() -> Result<()> {
+    let test = CliTest::with_files([
+        (
+            "explicit.toml",
+            indoc! {r#"
+                target-version = 'py310'
+                lint.select = ['T201']
+            "#},
+        ),
+        (
+            "script.py",
+            indoc! {r#"
+                # /// script
+                # requires-python = '>=3.12'
+                # [tool.ruff.lint]
+                # ignore = ['T201']
+                # ///
+                print('hello')
+            "#},
+        ),
+    ])?;
+    let output = test
+        .check_command()
+        .args(["--preview", "--config", "explicit.toml", "script.py"])
+        .output()?;
+    assert_eq!(output.status.code(), Some(1));
+    assert!(str::from_utf8(&output.stdout)?.contains("print"));
+    let output = test
+        .check_command()
+        .args([
+            "--preview",
+            "--config",
+            "explicit.toml",
+            "--show-settings",
+            "script.py",
+        ])
+        .output()?;
+    assert!(str::from_utf8(&output.stdout)?.contains("linter.unresolved_target_version = 3.10"));
+    Ok(())
+}
+
+#[test]
 fn invalid_script_python_requirement() -> Result<()> {
     let test = CliTest::with_file("script.py", "")?;
     for requirement in ["'<3.12'", "'>=4'", "'invalid'", "42"] {
