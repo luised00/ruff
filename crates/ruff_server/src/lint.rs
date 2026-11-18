@@ -92,6 +92,22 @@ pub(crate) fn check(
         return DiagnosticsMap::default();
     }
 
+    if let Some(error) = settings.script_error() {
+        return DiagnosticsMap::from_iter([(
+            query.make_key().into_uri(),
+            vec![lsp_types::Diagnostic {
+                range: lsp_types::Range::default(),
+                severity: Some(lsp_types::DiagnosticSeverity::Error),
+                code: Some(lsp_types::Code::String(
+                    "invalid-script-metadata".to_string(),
+                )),
+                source: Some("Ruff".to_string()),
+                message: error.to_string().into(),
+                ..lsp_types::Diagnostic::default()
+            }],
+        )]);
+    }
+
     let result = match query.source_type_for_lint() {
         SourceType::Python(source_type) => check_python(query, source_type),
         SourceType::Toml(source_type @ (TomlSourceType::Pyproject | TomlSourceType::Ruff)) => {

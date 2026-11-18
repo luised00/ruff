@@ -1,7 +1,229 @@
 use anyhow::Result;
+use indoc::indoc;
 use insta::assert_json_snapshot;
+use lsp_types::{
+    DocumentDiagnosticReport, TextDocumentContentChangeEvent,
+    TextDocumentContentChangeWholeDocument,
+};
 
 use crate::TestServerBuilder;
+
+#[test]
+fn server_preview_enables_script_configuration() -> Result<()> {
+    let mut server = TestServerBuilder::new()?
+        .with_workspace(".")?
+        .with_file("ruff.toml", "lint.ignore = ['F401']")?
+        .with_server_preview(true)
+        .build();
+    server.open_text_document(
+        "script.py",
+        indoc! {r#"
+            # /// script
+            # [tool.ruff]
+            # ///
+            import os
+        "#},
+        1,
+    );
+    let DocumentDiagnosticReport::RelatedFullDocumentDiagnosticReport(report) =
+        server.document_diagnostic_request("script.py", None)
+    else {
+        anyhow::bail!("expected a full report");
+    };
+    assert_eq!(report.full_document_diagnostic_report.items.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn invalid_script_configuration_blocks_edits() -> Result<()> {
+    let mut server = TestServerBuilder::new()?
+        .with_workspace(".")?
+        .with_file(
+            "ruff.toml",
+            indoc! {r#"
+                preview = true
+                lint.ignore = ['F401']
+            "#},
+        )?
+        .build();
+    server.open_text_document(
+        "script.py",
+        indoc! {r#"
+            # /// script
+            # [tool.ruff]
+            # extend = 'missing.toml'
+            # ///
+            import os
+            x= 1
+        "#},
+        1,
+    );
+    let DocumentDiagnosticReport::RelatedFullDocumentDiagnosticReport(report) =
+        server.document_diagnostic_request("script.py", None)
+    else {
+        anyhow::bail!("expected a full report");
+    };
+    let items = report.full_document_diagnostic_report.items;
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0].code,
+        Some(lsp_types::Code::String(
+            "invalid-script-metadata".to_owned()
+        ))
+    );
+    assert!(
+        serde_json::to_value(&items[0].message)?
+            .as_str()
+            .is_some_and(|message| message.contains("missing.toml"))
+    );
+    assert!(
+        server
+            .code_action_request("script.py", items)
+            .unwrap_or_default()
+            .is_empty()
+    );
+    assert!(
+        server
+            .format_request("script.py")
+            .is_none_or(|edits| edits.is_empty())
+    );
+    Ok(())
+}
+
+#[test]
+fn inline_script_preserves_project_exclusions() -> Result<()> {
+    let mut server = TestServerBuilder::new()?
+        .with_workspace(".")?
+        .with_file(
+            "ruff.toml",
+            indoc! {r#"
+                preview = true
+                exclude = ['script.py']
+            "#},
+        )?
+        .build();
+    server.open_text_document(
+        "script.py",
+        indoc! {r#"
+            # /// script
+            # [tool.ruff]
+            # ///
+            import os
+        "#},
+        1,
+    );
+    let DocumentDiagnosticReport::RelatedFullDocumentDiagnosticReport(report) =
+        server.document_diagnostic_request("script.py", None)
+    else {
+        anyhow::bail!("expected a full report");
+    };
+    assert!(report.full_document_diagnostic_report.items.is_empty());
+    Ok(())
+}
+
+#[test]
+fn inline_script_configuration_in_open_document() -> Result<()> {
+    let mut server = TestServerBuilder::new()?
+        .with_workspace(".")?
+        .with_file(
+            "ruff.toml",
+            indoc! {r#"
+                preview = true
+                lint.ignore = ['F401']
+            "#},
+        )?
+        .build();
+    server.open_text_document(
+        "script.py",
+        indoc! {r#"
+            # /// script
+            # [tool.ruff]
+            # ///
+            import os
+        "#},
+        1,
+    );
+    let DocumentDiagnosticReport::RelatedFullDocumentDiagnosticReport(report) =
+        server.document_diagnostic_request("script.py", None)
+    else {
+        anyhow::bail!("expected a full report");
+    };
+    assert_eq!(report.full_document_diagnostic_report.items.len(), 1);
+
+    server.change_text_document(
+        "script.py",
+        vec![
+            TextDocumentContentChangeEvent::TextDocumentContentChangeWholeDocument(
+                TextDocumentContentChangeWholeDocument {
+                    text: indoc! {r#"
+                        import os
+                    "#}
+                    .into(),
+                },
+            ),
+        ],
+        2,
+    );
+    let DocumentDiagnosticReport::RelatedFullDocumentDiagnosticReport(report) =
+        server.document_diagnostic_request("script.py", None)
+    else {
+        anyhow::bail!("expected a full report after removing the inline table");
+    };
+    assert!(report.full_document_diagnostic_report.items.is_empty());
+    Ok(())
+}
+
+#[test]
+fn script_requires_python_in_open_document() -> Result<()> {
+    let mut server = TestServerBuilder::new()?
+        .with_workspace(".")?
+        .with_file(
+            "ruff.toml",
+            indoc! {r#"
+                preview = true
+                per-file-target-version = { 'script.py' = 'py39' }
+                lint.select = ['UP045']
+            "#},
+        )?
+        .build();
+    let code = indoc! {r#"
+        from typing import Optional
+        x: Optional[int]
+    "#};
+    server.open_text_document(
+        "script.py",
+        indoc! {r#"
+            # /// script
+            # requires-python = '>=3.10'
+            # ///
+            from typing import Optional
+            x: Optional[int]
+        "#},
+        1,
+    );
+    let DocumentDiagnosticReport::RelatedFullDocumentDiagnosticReport(report) =
+        server.document_diagnostic_request("script.py", None)
+    else {
+        anyhow::bail!("expected a full report");
+    };
+    assert_eq!(report.full_document_diagnostic_report.items.len(), 1);
+    server.change_text_document(
+        "script.py",
+        vec![
+            TextDocumentContentChangeEvent::TextDocumentContentChangeWholeDocument(
+                TextDocumentContentChangeWholeDocument { text: code.into() },
+            ),
+        ],
+        2,
+    );
+    let DocumentDiagnosticReport::RelatedFullDocumentDiagnosticReport(report) =
+        server.document_diagnostic_request("script.py", None)
+    else {
+        anyhow::bail!("expected a full report after editing the script");
+    };
+    assert!(report.full_document_diagnostic_report.items.is_empty());
+    Ok(())
+}
 
 #[test]
 fn uses_human_readable_names_in_preview() -> Result<()> {
