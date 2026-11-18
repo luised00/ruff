@@ -81,6 +81,9 @@ impl GlobalOptions {
 #[cfg_attr(test, derive(PartialEq, Eq))]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct ClientOptions {
+    /// Preview mode supplied when starting the server.
+    #[serde(skip)]
+    server_preview: Option<bool>,
     configuration: Option<ClientConfiguration>,
     fix_all: Option<bool>,
     organize_imports: Option<bool>,
@@ -125,6 +128,7 @@ impl ClientOptions {
         });
 
         let editor_settings = EditorSettings {
+            server_preview: self.server_preview,
             configuration,
             lint_preview: lint.preview,
             format_preview: format.preview,
@@ -170,6 +174,7 @@ impl ClientOptions {
 
     /// Update the preview flag for the linter and the formatter with the given value.
     fn set_preview(&mut self, preview: bool) {
+        self.server_preview = Some(preview);
         match self.lint.as_mut() {
             None => self.lint = Some(LintOptions::default().with_preview(preview)),
             Some(lint) => lint.set_preview(preview),
@@ -183,6 +188,7 @@ impl ClientOptions {
 
 impl Combine for ClientOptions {
     fn combine_with(&mut self, other: Self) {
+        self.server_preview.combine_with(other.server_preview);
         self.configuration.combine_with(other.configuration);
         self.fix_all.combine_with(other.fix_all);
         self.organize_imports.combine_with(other.organize_imports);
@@ -546,6 +552,7 @@ mod tests {
         HasWorkspaces {
             global: GlobalOptions {
                 client: ClientOptions {
+                    server_preview: None,
                     configuration: None,
                     fix_all: Some(
                         false,
@@ -610,6 +617,7 @@ mod tests {
             workspace: [
                 WorkspaceOptions {
                     options: ClientOptions {
+                        server_preview: None,
                         configuration: None,
                         fix_all: Some(
                             true,
@@ -673,6 +681,7 @@ mod tests {
                 },
                 WorkspaceOptions {
                     options: ClientOptions {
+                        server_preview: None,
                         configuration: None,
                         fix_all: Some(
                             true,
@@ -774,6 +783,7 @@ mod tests {
                 fix_violation_enable: false,
                 show_syntax_errors: true,
                 editor_settings: EditorSettings {
+                    server_preview: None,
                     configuration: None,
                     lint_preview: Some(true),
                     format_preview: None,
@@ -812,6 +822,7 @@ mod tests {
                 fix_violation_enable: false,
                 show_syntax_errors: true,
                 editor_settings: EditorSettings {
+                    server_preview: None,
                     configuration: None,
                     lint_preview: Some(false),
                     format_preview: None,
@@ -838,6 +849,7 @@ mod tests {
         GlobalOnly {
             settings: GlobalOptions {
                 client: ClientOptions {
+                    server_preview: None,
                     configuration: None,
                     fix_all: Some(
                         false,
@@ -913,6 +925,7 @@ mod tests {
                 fix_violation_enable: true,
                 show_syntax_errors: true,
                 editor_settings: EditorSettings {
+                    server_preview: None,
                     configuration: None,
                     lint_preview: None,
                     format_preview: None,
@@ -939,6 +952,7 @@ mod tests {
     }
 
     fn assert_preview_client_options(options: &ClientOptions, preview: bool) {
+        assert_eq!(options.server_preview, Some(preview));
         assert_eq!(options.lint.as_ref().unwrap().preview.unwrap(), preview);
         assert_eq!(options.format.as_ref().unwrap().preview.unwrap(), preview);
     }
@@ -996,6 +1010,7 @@ mod tests {
                 fix_violation_enable: true,
                 show_syntax_errors: true,
                 editor_settings: EditorSettings {
+                    server_preview: None,
                     configuration: Some(ResolvedConfiguration::Inline(Box::new(Options {
                         line_length: Some(LineLength::try_from(100).unwrap()),
                         lint: Some(LintOptions {

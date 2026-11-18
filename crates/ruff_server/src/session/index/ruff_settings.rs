@@ -371,6 +371,7 @@ struct EditorConfigurationTransformer<'a>(&'a EditorSettings, &'a Path);
 impl ConfigurationTransformer for EditorConfigurationTransformer<'_> {
     fn transform(&self, filesystem_configuration: Configuration) -> Configuration {
         let EditorSettings {
+            server_preview,
             configuration,
             format_preview,
             lint_preview,
@@ -386,6 +387,7 @@ impl ConfigurationTransformer for EditorConfigurationTransformer<'_> {
         let project_root = self.1;
 
         let editor_configuration = Configuration {
+            preview: server_preview.map(PreviewMode::from),
             lint: LintConfiguration {
                 preview: lint_preview.map(PreviewMode::from),
                 rule_selections: vec![RuleSelection {

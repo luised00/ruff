@@ -84,6 +84,7 @@ pub(crate) struct ClientSettings {
 #[derive(Clone, Debug)]
 #[cfg_attr(test, derive(Default, PartialEq, Eq))]
 pub(crate) struct EditorSettings {
+    pub(super) server_preview: Option<bool>,
     pub(super) configuration: Option<ResolvedConfiguration>,
     pub(super) lint_preview: Option<bool>,
     pub(super) format_preview: Option<bool>,
