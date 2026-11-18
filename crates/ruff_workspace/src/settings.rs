@@ -19,7 +19,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 #[expect(clippy::struct_excessive_bools)]
-#[derive(Debug, CacheKey)]
+#[derive(Debug, Clone, CacheKey)]
 pub struct Settings {
     /// Top-level preview mode for features shared by the linter and formatter.
     pub preview: PreviewMode,
@@ -94,7 +94,7 @@ impl fmt::Display for Settings {
     }
 }
 
-#[derive(Debug, CacheKey)]
+#[derive(Debug, Clone, CacheKey)]
 pub struct FileResolverSettings {
     pub exclude: FilePatternSet,
     pub extend_exclude: FilePatternSet,
