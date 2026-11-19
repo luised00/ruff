@@ -901,12 +901,15 @@ impl Builder {
             }
         }
 
-        set(
-            self.ast.nodes.rows_mut(),
-            &self.ast.extra,
-            expr.slot,
-            context.encode().to_le_bytes()[0],
-        );
+        let context = context.encode().to_le_bytes()[0];
+        let rows = self.ast.nodes.rows_mut();
+        let row = &mut rows[expr.slot()];
+        match row.kind() {
+            NodeKind::ExprName => row.set_expr_name_ctx(context),
+            NodeKind::ExprAttribute => row.set_expr_attribute_ctx(context),
+            NodeKind::ExprSubscript => row.set_expr_subscript_ctx(context),
+            _ => set(rows, &self.ast.extra, expr.slot, context),
+        }
     }
 
     #[inline]
