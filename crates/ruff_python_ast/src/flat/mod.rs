@@ -717,6 +717,7 @@ impl Builder {
             ast: Ast {
                 nodes,
                 extra: Vec::with_capacity(estimated + estimated / 8),
+                text: String::with_capacity((bytes / 8).min(4096)),
                 names: Vec::with_capacity(estimated / 8),
                 ..Ast::default()
             },
