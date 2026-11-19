@@ -3261,9 +3261,7 @@ impl<'a> ResolvedNames<'a> {
             if let Some(raw) = self.by_row.get(name.row_index() + 1) {
                 return Self::decode(*raw);
             }
-            if self.by_offset.get().is_none() {
-                return None;
-            }
+            self.by_offset.get()?;
         }
         self.get_by_offset(name.start())
     }

@@ -808,7 +808,7 @@ impl Builder {
         self.ast.debug_text.truncate(checkpoint.debug_text);
     }
 
-    pub fn node_count(&self) -> usize {
+    fn node_count(&self) -> usize {
         self.ast.nodes.len() - 1
     }
 

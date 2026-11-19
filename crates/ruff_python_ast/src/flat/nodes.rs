@@ -341,7 +341,7 @@ impl<'a> crate::Parameters<'a> {
         self.items().parameter_roles()
     }
 
-    pub fn posonlyargs(self) -> impl DoubleEndedIterator<Item = ParameterWithDefault<'a>> + Clone {
+    fn posonlyargs(self) -> impl DoubleEndedIterator<Item = ParameterWithDefault<'a>> + Clone {
         self.items()
             .matching(|role| role == super::ParameterItems::POSITIONAL_ONLY)
     }

@@ -501,10 +501,10 @@ impl<'a> ParameterItems<'a> {
             })
     }
 
-    pub fn len(self) -> usize {
+    pub(crate) fn len(self) -> usize {
         self.0.len()
     }
-    pub fn is_empty(self) -> bool {
+    pub(super) fn is_empty(self) -> bool {
         self.0.is_empty()
     }
 
