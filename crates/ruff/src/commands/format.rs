@@ -38,7 +38,7 @@ use ruff_source_file::{LineIndex, LineRanges, OneIndexed, SourceFile, SourceFile
 use ruff_text_size::{TextLen, TextRange, TextSize};
 use ruff_workspace::FormatterSettings;
 use ruff_workspace::resolver::{
-    ResolvedFile, Resolver, RootSettings, match_exclusion, project_files_in_path,
+    ResolvedFile, Resolver, RootSettings, SettingsForSource, match_exclusion, project_files_in_path,
 };
 
 use crate::args::{ConfigArguments, FormatArguments, FormatRange};
@@ -120,7 +120,8 @@ pub(crate) fn format(
             match entry {
                 Ok(resolved_file) => {
                     let path = resolved_file.path();
-                    let settings = resolver.resolve(path);
+                    let project = resolver.resolve_with_path(path);
+                    let settings = &project.settings;
 
                     let source_type = settings.formatter.extension.get_source_type(path);
                     if source_type.is_toml() {
@@ -152,7 +153,7 @@ pub(crate) fn format(
                         match catch_unwind(|| {
                             format_path(
                                 path,
-                                &settings.formatter,
+                                &project.with_overrides(config_arguments),
                                 source_type,
                                 mode,
                                 cli.range,
@@ -251,22 +252,23 @@ pub(crate) fn format(
 #[tracing::instrument(level = "debug", skip_all, fields(path = %path.display()))]
 pub(crate) fn format_path(
     path: &Path,
-    settings: &FormatterSettings,
+    project: &SettingsForSource<'_>,
     source_type: SourceType,
     mode: FormatMode,
     range: Option<FormatRange>,
     cache: Option<&Cache>,
 ) -> Result<FormatResult, FormatCommandError> {
-    if let Some(cache) = cache {
+    let cache = cache.filter(|_| !project.project_settings().preview.is_enabled());
+    let cached_file = cache.and_then(|cache| {
         let relative_path = cache
             .relative_path(path)
             .expect("wrong package cache for file");
-
-        if let Ok(cache_key) = FileCacheKey::from_path(path) {
-            if cache.is_formatted(relative_path, &cache_key) {
-                return Ok(FormatResult::Unchanged);
-            }
-        }
+        Some((cache, relative_path, FileCacheKey::from_path(path).ok()?))
+    });
+    if let Some((cache, relative_path, key)) = &cached_file
+        && cache.is_formatted(relative_path, key)
+    {
+        return Ok(FormatResult::Unchanged);
     }
 
     // Extract the sources from the file.
@@ -279,11 +281,16 @@ pub(crate) fn format_path(
         }
     };
 
+    let script = project
+        .resolve_script(Some(path), source_type, unformatted.source_code())
+        .map_err(|error| FormatCommandError::Configuration(path.to_owned(), error))?;
     // Don't write back to the cache if formatting a range.
-    let cache = cache.filter(|_| range.is_none());
-
+    let cached_file = cached_file.filter(|_| range.is_none());
+    let settings = script
+        .as_ref()
+        .map_or(project.project_settings(), |script| &script.settings);
     // Format the source.
-    let format_result = match format_source(&unformatted, Some(path), settings, range)? {
+    let format_result = match format_source(&unformatted, Some(path), &settings.formatter, range)? {
         FormattedSource::Formatted(formatted) => match mode {
             FormatMode::Write => {
                 let mut writer = File::create(path).map_err(|err| {
@@ -293,13 +300,10 @@ pub(crate) fn format_path(
                     .write(&mut writer)
                     .map_err(|err| FormatCommandError::Write(Some(path.to_path_buf()), err))?;
 
-                if let Some(cache) = cache {
-                    if let Ok(cache_key) = FileCacheKey::from_path(path) {
-                        let relative_path = cache
-                            .relative_path(path)
-                            .expect("wrong package cache for file");
-                        cache.set_formatted(relative_path.to_path_buf(), &cache_key);
-                    }
+                if let Some((cache, relative_path, _)) = cached_file
+                    && let Ok(key) = FileCacheKey::from_path(path)
+                {
+                    cache.set_formatted(relative_path.to_path_buf(), &key);
                 }
 
                 FormatResult::Formatted
@@ -310,13 +314,8 @@ pub(crate) fn format_path(
             },
         },
         FormattedSource::Unchanged => {
-            if let Some(cache) = cache {
-                if let Ok(cache_key) = FileCacheKey::from_path(path) {
-                    let relative_path = cache
-                        .relative_path(path)
-                        .expect("wrong package cache for file");
-                    cache.set_formatted(relative_path.to_path_buf(), &cache_key);
-                }
+            if let Some((cache, relative_path, key)) = cached_file {
+                cache.set_formatted(relative_path.to_path_buf(), &key);
             }
 
             FormatResult::Unchanged
@@ -826,6 +825,7 @@ impl<'a> FormatResults<'a> {
 #[derive(Error, Debug)]
 pub(crate) enum FormatCommandError {
     Ignore(#[from] ignore::Error),
+    Configuration(PathBuf, anyhow::Error),
     Parse {
         error: DisplayParseError,
         source_file: SourceFile,
@@ -866,6 +866,7 @@ impl FormatCommandError {
                     None
                 }
             }
+            Self::Configuration(path, _) => Some(path),
             Self::Parse { error, .. } => error.path(),
             Self::Panic(path, _)
             | Self::Read(path, _)
@@ -887,6 +888,11 @@ impl From<&FormatCommandError> for Diagnostic {
         });
 
         let mut diagnostic = match error {
+            FormatCommandError::Configuration(_, error) => Diagnostic::new(
+                DiagnosticId::InvalidScriptMetadata,
+                Severity::Error,
+                format_args!("{error:#}"),
+            ),
             FormatCommandError::Ignore(error) => {
                 Diagnostic::new(DiagnosticId::Io, Severity::Error, error)
             }
@@ -947,6 +953,11 @@ impl Display for FormatCommandError {
                     )
                 }
             }
+            Self::Configuration(path, error) => write!(
+                f,
+                "Invalid script configuration in {}: {error:#}",
+                path.display()
+            ),
             Self::Parse { error, .. } => {
                 write!(f, "{error}")
             }

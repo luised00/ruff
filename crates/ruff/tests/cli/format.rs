@@ -4,6 +4,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::Result;
+use indoc::{formatdoc, indoc};
 use insta_cmd::assert_cmd_snapshot;
 
 use super::CliTest;
@@ -2477,6 +2478,118 @@ fn range_formatting_notebook() -> Result<()> {
     ----- stderr -----
     error: Failed to format main.ipynb: Range formatting is only supported for Python files.
     ");
+    Ok(())
+}
+
+#[test]
+fn inline_script_formatter() -> Result<()> {
+    let test = CliTest::with_file(
+        "ruff.toml",
+        indoc! {r#"
+            preview = true
+            format.quote-style = 'single'
+        "#},
+    )?;
+    test.write_file("shared.toml", "format.quote-style = 'single'")?;
+    for (name, metadata) in [
+        ("inherited.py", "dependencies = []"),
+        ("defaults.py", "[tool.ruff]"),
+        ("extended.py", "tool.ruff.extend = '../shared.toml'"),
+    ] {
+        test.write_file(
+            format!("scripts/{name}"),
+            &formatdoc! {r#"
+                # /// script
+                # {metadata}
+                # ///
+                x = 'hello'
+            "#},
+        )?;
+    }
+    assert!(
+        test.command()
+            .args(["format", "--no-preview", "--check", "scripts"])
+            .output()?
+            .status
+            .success()
+    );
+    assert!(
+        test.command()
+            .args(["format", "scripts"])
+            .output()?
+            .status
+            .success()
+    );
+    assert_eq!(
+        test.read_file("scripts/inherited.py")?.lines().last(),
+        Some("x = 'hello'")
+    );
+    assert_eq!(
+        test.read_file("scripts/defaults.py")?.lines().last(),
+        Some(r#"x = "hello""#)
+    );
+    assert_eq!(
+        test.read_file("scripts/extended.py")?.lines().last(),
+        Some("x = 'hello'")
+    );
+    assert_cmd_snapshot!(test.format_command().args(["--stdin-filename=scripts/extended.py", "-"]).pass_stdin(
+        indoc! {r#"
+            # /// script
+            # tool.ruff.extend = '../ruff.toml'
+            # ///
+            x = "hello"
+        "#}
+    ), @"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    # /// script
+    # tool.ruff.extend = '../ruff.toml'
+    # ///
+    x = 'hello'
+
+    ----- stderr -----
+    ");
+    Ok(())
+}
+
+#[test]
+fn script_requires_python_formatter() -> Result<()> {
+    let test = CliTest::with_file(
+        "ruff.toml",
+        indoc! {r#"
+            preview = true
+            per-file-target-version = { 'script.py' = 'py38' }
+        "#},
+    )?;
+    let script = indoc! {r#"
+        # /// script
+        # requires-python = '>=3.10'
+        # ///
+        with open('a_really_long_foo') as foo, open('a_really_long_bar') as bar, open('a_really_long_baz') as baz:
+            pass
+    "#};
+    test.write_file("script.py", script)?;
+    let output = test.format_command().arg("script.py").output()?;
+    assert!(output.status.success());
+    let formatted = test.read_file("script.py")?;
+    assert!(formatted.lines().any(|line| line == "with ("));
+    assert_cmd_snapshot!(test.format_command().args(["--stdin-filename=script.py", "-"]).pass_stdin(script), @r#"
+    success: true
+    exit_code: 0
+    ----- stdout -----
+    # /// script
+    # requires-python = '>=3.10'
+    # ///
+    with (
+        open("a_really_long_foo") as foo,
+        open("a_really_long_bar") as bar,
+        open("a_really_long_baz") as baz,
+    ):
+        pass
+
+    ----- stderr -----
+    "#);
     Ok(())
 }
 
