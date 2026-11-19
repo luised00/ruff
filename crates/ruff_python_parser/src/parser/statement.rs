@@ -873,8 +873,15 @@ impl<'src> Parser<'src> {
             // import a..b
             // import a...b
             self.name_buffer.push('.');
-            let identifier = self.parse_identifier_with_context(ExpressionContext::default());
-            self.name_buffer.push_str(self.storage.name(identifier.id));
+            if self.at(TokenKind::Identifier)
+                && !self.tokens.current_flags().is_non_ascii_identifier()
+            {
+                self.name_buffer.push_str(self.current_token_text());
+                self.bump(TokenKind::Identifier);
+            } else {
+                let identifier = self.parse_identifier_with_context(ExpressionContext::default());
+                self.name_buffer.push_str(self.storage.name(identifier.id));
+            }
         }
 
         let id = self.storage.intern_name(&self.name_buffer[snapshot..]);
