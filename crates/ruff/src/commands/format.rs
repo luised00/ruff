@@ -258,12 +258,12 @@ pub(crate) fn format_path(
     range: Option<FormatRange>,
     cache: Option<&Cache>,
 ) -> Result<FormatResult, FormatCommandError> {
-    let cache = cache.filter(|_| !project.project_settings().preview.is_enabled());
-    let cached_file = cache.and_then(|cache| {
+    let mut cached_file = cache.and_then(|cache| {
         let relative_path = cache
             .relative_path(path)
             .expect("wrong package cache for file");
-        Some((cache, relative_path, FileCacheKey::from_path(path).ok()?))
+        let key = FileCacheKey::for_source(path, project).ok()?;
+        Some((cache, relative_path, key))
     });
     if let Some((cache, relative_path, key)) = &cached_file
         && cache.is_formatted(relative_path, key)
@@ -284,6 +284,14 @@ pub(crate) fn format_path(
     let script = project
         .resolve_script(Some(path), source_type, unformatted.source_code())
         .map_err(|error| FormatCommandError::Configuration(path.to_owned(), error))?;
+    if let Some((cache, relative_path, key)) = &mut cached_file
+        && let Some(script) = &script
+    {
+        key.set_script_settings(&script.settings);
+        if cache.is_formatted(relative_path, key) {
+            return Ok(FormatResult::Unchanged);
+        }
+    }
     // Don't write back to the cache if formatting a range.
     let cached_file = cached_file.filter(|_| range.is_none());
     let settings = script
@@ -300,8 +308,8 @@ pub(crate) fn format_path(
                     .write(&mut writer)
                     .map_err(|err| FormatCommandError::Write(Some(path.to_path_buf()), err))?;
 
-                if let Some((cache, relative_path, _)) = cached_file
-                    && let Ok(key) = FileCacheKey::from_path(path)
+                if let Some((cache, relative_path, key)) = cached_file
+                    && let Ok(key) = key.after_write(path)
                 {
                     cache.set_formatted(relative_path.to_path_buf(), &key);
                 }

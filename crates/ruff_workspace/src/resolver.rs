@@ -278,6 +278,10 @@ impl<'a> SettingsForSource<'a> {
         &self.project.settings
     }
 
+    pub fn overrides(&self) -> &dyn ConfigurationTransformer {
+        self.overrides
+    }
+
     /// Resolve settings that depend on the contents of a Python script. An inline
     /// `[tool.ruff]` is a configuration file in its own right, even when empty.
     pub fn resolve_script(

@@ -2532,6 +2532,16 @@ fn inline_script_formatter() -> Result<()> {
         test.read_file("scripts/extended.py")?.lines().last(),
         Some("x = 'hello'")
     );
+    test.write_file("shared.toml", "format.quote-style = 'double'")?;
+    assert_eq!(
+        test.command()
+            .args(["format", "--check", "scripts/extended.py"])
+            .output()?
+            .status
+            .code(),
+        Some(1)
+    );
+
     assert_cmd_snapshot!(test.format_command().args(["--stdin-filename=scripts/extended.py", "-"]).pass_stdin(
         indoc! {r#"
             # /// script

@@ -21,7 +21,7 @@ use ruff_linter::package::PackageRoot;
 use ruff_linter::{VERSION, warn_user};
 use ruff_macros::CacheKey;
 use ruff_workspace::Settings;
-use ruff_workspace::resolver::Resolver;
+use ruff_workspace::resolver::{Resolver, SettingsForSource};
 
 /// [`Path`] that is relative to the package root in [`PackageCache`].
 pub(crate) type RelativePath = Path;
@@ -34,10 +34,13 @@ pub(crate) struct FileCacheKey {
     file_last_modified: FileTime,
     /// Permissions of the file before the (cached) check.
     file_permissions_mode: u32,
+    /// Distinguishes CLI configuration selection in preview mode. After reading a script,
+    /// also includes its resolved settings, including explicitly extended configuration.
+    script_settings: Option<u64>,
 }
 
 impl FileCacheKey {
-    pub(crate) fn from_path(path: &Path) -> io::Result<FileCacheKey> {
+    fn from_path(path: &Path) -> io::Result<FileCacheKey> {
         // Construct a cache key for the file
         let metadata = path.metadata()?;
 
@@ -52,6 +55,33 @@ impl FileCacheKey {
         Ok(FileCacheKey {
             file_last_modified: FileTime::from_last_modification_time(&metadata),
             file_permissions_mode: permissions,
+            script_settings: None,
+        })
+    }
+
+    pub(crate) fn for_source(path: &Path, project: &SettingsForSource<'_>) -> io::Result<Self> {
+        let mut key = Self::from_path(path)?;
+        if project.project_settings().preview.is_enabled() {
+            let overrides = project.overrides();
+            key.script_settings = Some(
+                u64::from(overrides.use_inline_config())
+                    | (u64::from(overrides.overrides_script_config()) << 1),
+            );
+        }
+        Ok(key)
+    }
+
+    pub(crate) fn set_script_settings(&mut self, settings: &Settings) {
+        let mut hasher = CacheKeyHasher::new();
+        self.script_settings.cache_key(&mut hasher);
+        settings.cache_key(&mut hasher);
+        self.script_settings = Some(hasher.finish());
+    }
+
+    pub(crate) fn after_write(self, path: &Path) -> io::Result<Self> {
+        Ok(Self {
+            script_settings: self.script_settings,
+            ..Self::from_path(path)?
         })
     }
 }
@@ -543,10 +573,7 @@ mod tests {
             ..Settings::default()
         };
 
-        let project = ResolvedSettings {
-            settings,
-            ..Default::default()
-        };
+        let project = ResolvedSettings::new(settings);
         let overrides = ConfigArguments::default();
         let package_root = fs::canonicalize(package_root).unwrap();
         let cache = Cache::open(package_root.clone(), &project.settings);
@@ -1043,10 +1070,7 @@ mod tests {
 
             Self {
                 package_root,
-                project: ResolvedSettings {
-                    settings,
-                    ..Default::default()
-                },
+                project: ResolvedSettings::new(settings),
             }
         }
 

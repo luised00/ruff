@@ -4206,6 +4206,42 @@ fn inline_script_namespace_packages() -> Result<()> {
 }
 
 #[test]
+fn script_cache_respects_configuration_mode() -> Result<()> {
+    let test = CliTest::with_file(
+        "script.py",
+        indoc! {r#"
+            # /// script
+            # [tool.ruff.lint]
+            # select = ['T201']
+            # [tool.ruff.format]
+            # quote-style = 'single'
+            # ///
+            print("hello")
+        "#},
+    )?;
+    for command in [vec!["check"], vec!["format", "--check"]] {
+        assert!(
+            test.command()
+                .args(&command)
+                .args(["--preview", "--isolated", "script.py"])
+                .output()?
+                .status
+                .success()
+        );
+        assert_eq!(
+            test.command()
+                .args(&command)
+                .args(["--preview", "script.py"])
+                .output()?
+                .status
+                .code(),
+            Some(1)
+        );
+    }
+    Ok(())
+}
+
+#[test]
 fn invalid_script_python_requirement() -> Result<()> {
     let test = CliTest::with_file("script.py", "")?;
     for requirement in ["'<3.12'", "'>=4'", "'invalid'", "42"] {
@@ -4287,6 +4323,49 @@ fn invalid_inline_script_configuration() -> Result<()> {
 }
 
 #[test]
+fn inline_script_extend_and_cache() -> Result<()> {
+    let test = CliTest::with_files([
+        (
+            "ruff.toml",
+            indoc! {r#"
+                preview = true
+                lint.select = ['F401']
+            "#},
+        ),
+        ("shared.toml", "lint.select = ['T201']"),
+        (
+            "scripts/example.py",
+            indoc! {r#"
+                # /// script
+                # [tool.ruff]
+                # extend = '../shared.toml'
+                # ///
+                import os
+            "#},
+        ),
+    ])?;
+    let check = |args: &[&str]| {
+        test.command()
+            .args(["check", "--output-format=concise", "scripts/example.py"])
+            .args(args)
+            .output()
+    };
+    assert!(check(&[])?.status.success());
+
+    // This explicit override matches the project and changes the script's rule selection.
+    let output = check(&["--select=F401"])?;
+    assert_eq!(output.status.code(), Some(1));
+    assert!(str::from_utf8(&output.stdout)?.contains("unused-import"));
+
+    assert!(check(&[])?.status.success());
+    test.write_file("shared.toml", "lint.select = ['F401']")?;
+    let output = check(&[])?;
+    assert_eq!(output.status.code(), Some(1));
+    assert!(str::from_utf8(&output.stdout)?.contains("unused-import"));
+    Ok(())
+}
+
+#[test]
 fn script_requires_python() -> Result<()> {
     let test = CliTest::with_file(
         "pyproject.toml",
@@ -4328,6 +4407,56 @@ select = ["UP045"]
 
     ----- stderr -----
     ");
+    Ok(())
+}
+
+#[test]
+fn script_requires_python_cli_override_and_cache() -> Result<()> {
+    let test = CliTest::with_files([
+        (
+            "ruff.toml",
+            indoc! {r#"
+                preview = true
+                target-version = 'py310'
+                per-file-target-version = { 'script.py' = 'py310' }
+                lint.select = ['UP045']
+            "#},
+        ),
+        (
+            "script.py",
+            indoc! {r#"
+                # /// script
+                # requires-python = '>=3.9'
+                # ///
+                from typing import Optional
+                x: Optional[int]
+            "#},
+        ),
+    ])?;
+    let check = |args: &[&str]| {
+        test.command()
+            .args(["check", "--output-format=concise", "script.py"])
+            .args(args)
+            .output()
+    };
+
+    // Warm the cache with a clean result for the script's own Python version.
+    assert!(check(&[])?.status.success());
+    for args in [
+        &["--target-version=py310"][..],
+        &["--config", "target-version = 'py310'"],
+        &[
+            "--config",
+            "per-file-target-version = { 'script.py' = 'py310' }",
+        ],
+    ] {
+        let output = check(args)?;
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(
+            str::from_utf8(&output.stdout)?.contains("non-pep604-annotation-optional"),
+            "{args:?}"
+        );
+    }
     Ok(())
 }
 

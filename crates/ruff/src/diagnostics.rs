@@ -190,15 +190,15 @@ pub(crate) fn lint_path(
     unsafe_fixes: UnsafeFixes,
 ) -> Result<Diagnostics> {
     let settings = &project.project_settings().linter;
-    let cache = cache.filter(|_| !project.project_settings().preview.is_enabled());
     // Check the cache.
-    let caching = match cache {
+    let mut caching = match cache {
         Some(cache) if noqa.is_enabled() => {
             let relative_path = cache
                 .relative_path(path)
                 .expect("wrong package cache for file");
 
-            let cache_key = FileCacheKey::from_path(path).context("Failed to create cache key")?;
+            let cache_key =
+                FileCacheKey::for_source(path, project).context("Failed to create cache key")?;
             let cached_diagnostics = cache
                 .get(relative_path, &cache_key)
                 .is_some_and(FileCache::linted);
@@ -304,6 +304,14 @@ pub(crate) fn lint_path(
             return Ok(Diagnostics::new(vec![diagnostic], FxHashMap::default()));
         }
     };
+    if let Some((cache, relative_path, key)) = &mut caching
+        && let Some(script) = &script
+    {
+        key.set_script_settings(&script.settings);
+        if cache.get(relative_path, key).is_some_and(FileCache::linted) {
+            return Ok(Diagnostics::default());
+        }
+    }
     let settings = script
         .as_ref()
         .map_or(settings, |script| &script.settings.linter);
