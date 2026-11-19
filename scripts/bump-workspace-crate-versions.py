@@ -45,6 +45,10 @@ import tomllib
 NO_BUMP_CRATES = {"ruff", "ruff_linter", "ruff_wasm"}
 
 
+def updated_requirement(current: str, version: str) -> str:
+    return f"={version}" if current.startswith("=") else version
+
+
 def main() -> None:
     # Pre-sync NO_BUMP_CRATES versions before running cargo metadata.
     #
@@ -68,10 +72,11 @@ def main() -> None:
         if manifest_dependency is None:
             continue
         manifest_version = manifest_dependency["version"]
-        if manifest_version != crate_version:
+        crate_requirement = updated_requirement(manifest_version, crate_version)
+        if manifest_version != crate_requirement:
             workspace_manifest_contents = workspace_manifest_contents.replace(
                 f'{crate_name} = {{ version = "{manifest_version}"',
-                f'{crate_name} = {{ version = "{crate_version}"',
+                f'{crate_name} = {{ version = "{crate_requirement}"',
             )
 
     workspace_manifest.write_text(workspace_manifest_contents)
@@ -110,9 +115,11 @@ def main() -> None:
             if manifest_dependency is None:
                 continue
             manifest_version = manifest_dependency["version"]
-            metadata_version = packages[workspace_member]["version"]
-            if manifest_version != metadata_version:
-                version_changes[name] = (manifest_version, metadata_version)
+            requirement = updated_requirement(
+                manifest_version, packages[workspace_member]["version"]
+            )
+            if manifest_version != requirement:
+                version_changes[name] = (manifest_version, requirement)
             continue
 
         # For other members, bump the patch version.
