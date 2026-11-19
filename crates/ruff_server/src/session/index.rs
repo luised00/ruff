@@ -238,7 +238,10 @@ impl Index {
                 let path = Path::new(uri.path());
                 let root = path.parent().unwrap_or(path);
                 Arc::new(RuffSettings::fallback(
-                    global.to_settings().editor_settings(),
+                    &ruff_settings::EditorConfigurationTransformer::new(
+                        global.to_settings().editor_settings(),
+                        root,
+                    ),
                     root,
                 ))
             });
