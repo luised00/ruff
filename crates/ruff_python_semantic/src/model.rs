@@ -3210,8 +3210,9 @@ impl Ranged for ImportedName {
     }
 }
 
-/// Bindings for names in the current module are indexed by their AST row. Each
-/// slot stores the binding index plus one, with zero reserved for unresolved names.
+/// Bindings for names in the current module are indexed by their AST slot. Slot zero
+/// is reserved just as in the AST. Each entry stores the binding index plus one,
+/// with zero reserved for unresolved names.
 /// Allocate the row table on the first recorded binding. Switch to source offsets
 /// if a binding outgrows its slot or a separately parsed node is accessed. Offsets
 /// identify the same name across syntax trees.
@@ -3243,7 +3244,7 @@ impl<'a> ResolvedNames<'a> {
     fn offsets(&self) -> &FxHashMap<TextSize, BindingId> {
         self.by_offset.get_or_init(|| {
             (0u32..)
-                .zip(self.by_row.iter())
+                .zip(self.by_row.get(1..).unwrap_or_default().iter())
                 .filter_map(|(slot, id)| {
                     let binding = Self::decode(*id)?;
                     Some((self.ast.row(slot)?.start(), binding))
@@ -3257,7 +3258,7 @@ impl<'a> ResolvedNames<'a> {
         if std::ptr::eq(self.ast, name.ast()) {
             // A foreign read can initialize the offset map without changing these rows. Any
             // write to that map releases the row table, so an existing row is authoritative.
-            if let Some(raw) = self.by_row.get(name.row_index()) {
+            if let Some(raw) = self.by_row.get(name.row_index() + 1) {
                 return Self::decode(*raw);
             }
             if self.by_offset.get().is_none() {
@@ -3278,7 +3279,7 @@ impl<'a> ResolvedNames<'a> {
             && self.by_offset.get().is_none()
             && let Ok(raw) = u16::try_from(binding.as_u32() + 1)
         {
-            let row = name.row_index();
+            let row = name.row_index() + 1;
             if let Some(slot) = self.by_row.get_mut(row) {
                 *slot = raw;
             } else {
@@ -3303,7 +3304,7 @@ impl<'a> ResolvedNames<'a> {
 
     #[cold]
     fn allocate_rows(&mut self, row: usize, raw: u16) {
-        self.by_row = vec![0; self.ast.len()].into_boxed_slice();
+        self.by_row = vec![0; self.ast.len() + 1].into_boxed_slice();
         self.by_row[row] = raw;
     }
 }
