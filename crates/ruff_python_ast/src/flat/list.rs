@@ -256,6 +256,7 @@ impl<'a, T: NodeType> FilteredNodes<'a, T> {
         }
     }
 
+    #[inline]
     pub fn iter(self) -> FilteredNodeIter<'a, T> {
         FilteredNodeIter {
             ast: self.ast,
@@ -318,6 +319,7 @@ impl<'a, T: NodeType> FilteredNodes<'a, T> {
 impl<'a, T: NodeType> IntoIterator for FilteredNodes<'a, T> {
     type Item = T::Borrowed<'a>;
     type IntoIter = FilteredNodeIter<'a, T>;
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
@@ -652,6 +654,7 @@ impl<'a> IntoIterator for MappingPatternItems<'a> {
     type Item = MappingPatternItemView<'a>;
     type IntoIter = MappingPatternIter<'a>;
 
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         MappingPatternIter(self.0.into_iter())
     }
@@ -869,6 +872,7 @@ impl<'a, E: Element> List<'a, E> {
         self.words().iter().position(|&word| word == slot)
     }
 
+    #[inline]
     pub fn iter(self) -> Iter<'a, E> {
         self.into_iter()
     }

@@ -258,6 +258,7 @@ impl<'a> Deref for StringValue<'a> {
 impl<'a> IntoIterator for StringValue<'a> {
     type Item = crate::StringLiteral<'a>;
     type IntoIter = <List<'a, AstNodeId<crate::kind::StringLiteral>> as IntoIterator>::IntoIter;
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.parts.into_iter()
     }
@@ -517,6 +518,7 @@ impl<'a> crate::Parameters<'a> {
 }
 
 impl<'a> crate::TypeParams<'a> {
+    #[inline]
     pub fn iter(self) -> super::list::Iter<'a, AstNodeId<crate::kind::TypeParam>> {
         self.type_params().iter()
     }
@@ -698,6 +700,7 @@ macro_rules! literal_value {
         impl<'a> IntoIterator for $name<'a> {
             type Item = <List<'a, $element> as IntoIterator>::Item;
             type IntoIter = <List<'a, $element> as IntoIterator>::IntoIter;
+            #[inline]
             fn into_iter(self) -> Self::IntoIter {
                 self.0.into_iter()
             }
@@ -823,6 +826,7 @@ impl<'a> crate::ExprFString<'a> {
 }
 
 impl<'a> crate::ExprTuple<'a> {
+    #[inline]
     pub fn iter(self) -> super::list::Iter<'a, AstNodeId<crate::kind::Expr>> {
         self.elts().iter()
     }
@@ -904,6 +908,7 @@ impl<'a> crate::Arguments<'a> {
         }
     }
 
+    #[inline]
     pub fn iter_source_order(self) -> ArgumentsSourceOrder<'a> {
         self.items().iter()
     }
@@ -1007,6 +1012,7 @@ impl<'a> crate::Arguments<'a> {
 impl<'a> IntoIterator for crate::ExprTuple<'a> {
     type Item = Expr<'a>;
     type IntoIter = super::list::Iter<'a, AstNodeId<crate::kind::Expr>>;
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.elts().iter()
     }
@@ -1014,6 +1020,7 @@ impl<'a> IntoIterator for crate::ExprTuple<'a> {
 impl<'a> IntoIterator for crate::TypeParams<'a> {
     type Item = crate::TypeParam<'a>;
     type IntoIter = super::list::Iter<'a, AstNodeId<crate::kind::TypeParam>>;
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
@@ -1123,18 +1130,21 @@ impl crate::DictItem<'_> {
 impl<'a> IntoIterator for crate::ExprDict<'a> {
     type Item = crate::DictItem<'a>;
     type IntoIter = super::list::Iter<'a, crate::AstNodeId<crate::kind::DictItem>>;
+    #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.items().iter()
     }
 }
 
 impl<'a> crate::ExprDict<'a> {
+    #[inline]
     pub fn iter_keys(
         self,
     ) -> impl DoubleEndedIterator<Item = Option<Expr<'a>>> + ExactSizeIterator {
         self.items().iter().map(crate::DictItem::key)
     }
 
+    #[inline]
     pub fn iter_values(self) -> impl DoubleEndedIterator<Item = Expr<'a>> + ExactSizeIterator {
         self.items().iter().map(crate::DictItem::value)
     }
