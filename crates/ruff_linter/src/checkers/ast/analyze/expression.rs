@@ -217,7 +217,6 @@ pub(crate) fn expression(kind: ExprKind<'_>, checker: &Checker) {
             sequence_literal(checker, expr, list.elts(), list.ctx());
         }
         ExprKind::Name(expr_name) => {
-            let id = expr_name.id();
             let ctx = expr_name.ctx();
             let range = expr_name.range();
 
@@ -332,6 +331,7 @@ pub(crate) fn expression(kind: ExprKind<'_>, checker: &Checker) {
                     }
                 }
                 ExprContext::Store => {
+                    let id = expr_name.id();
                     if checker.is_rule_enabled(Rule::NonLowercaseVariableInFunction) {
                         if checker.semantic.current_scope().kind.is_function() {
                             pep8_naming::rules::non_lowercase_variable_in_function(

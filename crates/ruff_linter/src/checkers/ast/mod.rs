@@ -1813,16 +1813,12 @@ impl<'a> Visitor<'a> for Checker<'a> {
                     self.semantic.current_scope_mut().set_uses_locals();
                 }
             }
-            ExprKind::Name(expr_name) => {
-                let id = expr_name.id();
-                let ctx = expr_name.ctx();
-                match ctx {
-                    ExprContext::Load => self.handle_node_load(expr),
-                    ExprContext::Store => self.handle_node_store(id, expr),
-                    ExprContext::Del => self.handle_node_delete(expr),
-                    ExprContext::Invalid => {}
-                }
-            }
+            ExprKind::Name(expr_name) => match expr_name.ctx() {
+                ExprContext::Load => self.handle_node_load(expr),
+                ExprContext::Store => self.handle_node_store(expr_name.id(), expr),
+                ExprContext::Del => self.handle_node_delete(expr),
+                ExprContext::Invalid => {}
+            },
             _ => {}
         }
 
