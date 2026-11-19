@@ -475,7 +475,7 @@ impl CommentNodeFilter {
     }
 
     fn position(&self, node: SyntaxNode<'_>) -> (usize, u64) {
-        let index = node.node_id().index();
+        let index = node.row_index();
         ((index / 64) % self.0.len(), 1 << (index % 64))
     }
 }

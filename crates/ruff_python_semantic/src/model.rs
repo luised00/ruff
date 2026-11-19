@@ -3254,14 +3254,17 @@ impl<'a> ResolvedNames<'a> {
 
     #[inline]
     fn get(&self, name: ast::ExprName<'_>) -> Option<BindingId> {
-        if std::ptr::eq(self.ast, name.ast()) && self.by_offset.get().is_none() {
-            self.by_row
-                .get(name.node_id().index())
-                .copied()
-                .and_then(Self::decode)
-        } else {
-            self.get_by_offset(name.start())
+        if std::ptr::eq(self.ast, name.ast()) {
+            // A foreign read can initialize the offset map without changing these rows. Any
+            // write to that map releases the row table, so an existing row is authoritative.
+            if let Some(raw) = self.by_row.get(name.row_index()) {
+                return Self::decode(*raw);
+            }
+            if self.by_offset.get().is_none() {
+                return None;
+            }
         }
+        self.get_by_offset(name.start())
     }
 
     #[cold]
@@ -3275,7 +3278,7 @@ impl<'a> ResolvedNames<'a> {
             && self.by_offset.get().is_none()
             && let Ok(raw) = u16::try_from(binding.as_u32() + 1)
         {
-            let row = name.node_id().index();
+            let row = name.row_index();
             if let Some(slot) = self.by_row.get_mut(row) {
                 *slot = raw;
             } else {
@@ -3331,6 +3334,8 @@ mod tests {
         names.insert(left, left_binding);
         names.insert(right, right_binding);
         assert_eq!(names.get(reparsed_right), Some(right_binding));
+        assert_eq!(names.get(right), Some(right_binding));
+        assert_eq!(names.get(left), Some(left_binding));
 
         names.insert(right, left_binding);
         assert!(names.by_row.is_empty());

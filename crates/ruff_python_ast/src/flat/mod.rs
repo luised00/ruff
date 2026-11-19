@@ -255,6 +255,11 @@ pub trait AstNode<'ast>: sealed::FromSyntax<'ast> + Copy + fmt::Debug + PartialE
         AstNodeId::from_word(self.syntax_node().slot())
     }
 
+    /// Zero-based allocation index of this node in its AST.
+    fn row_index(self) -> usize {
+        self.syntax_node().slot_usize() - 1
+    }
+
     fn is_same_node<'other>(self, other: impl AstNode<'other>) -> bool {
         std::ptr::eq(self.syntax_node().row, other.syntax_node().row)
     }
