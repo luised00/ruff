@@ -738,6 +738,16 @@ fn keyword_and_dotted_import_names_use_one_row_each() {
 }
 
 #[test]
+fn dotted_imports_retain_bound_name_prefixes() {
+    let parsed = parse_module("import pkg.sub\nfrom other.module import value\n").unwrap();
+    assert!(parsed.ast().contains_identifier("pkg"));
+    assert!(parsed.ast().contains_identifier("pkg.sub"));
+    assert!(parsed.ast().contains_identifier("other.module"));
+    assert!(parsed.ast().contains_identifier("value"));
+    assert!(!parsed.ast().contains_identifier("other"));
+}
+
+#[test]
 fn pattern_keys_and_class_heads_only_allocate_reachable_rows() {
     let source = "\
 match value:

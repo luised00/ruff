@@ -702,7 +702,7 @@ impl<'src> Parser<'src> {
             // from case import pattern
             // from lazy import qux
             // from match.type.case import foo
-            Some(self.parse_dotted_name())
+            Some(self.parse_dotted_name(ImportStyle::ImportFrom))
         } else {
             if leading_dots == 0 {
                 // test_err from_import_missing_module
@@ -818,7 +818,7 @@ impl<'src> Parser<'src> {
         }
 
         let name = match style {
-            ImportStyle::Import => self.parse_dotted_name(),
+            ImportStyle::Import => self.parse_dotted_name(ImportStyle::Import),
             ImportStyle::ImportFrom => self.parse_identifier(),
         };
 
@@ -854,16 +854,34 @@ impl<'src> Parser<'src> {
     /// Parses a dotted name.
     ///
     /// A dotted name is a sequence of identifiers separated by a single dot.
-    fn parse_dotted_name(&mut self) -> id::Identifier {
+    fn parse_dotted_name(&mut self, style: ImportStyle) -> id::Identifier {
         let start = self.node_start();
 
-        let first = self.parse_identifier_with_context(ExpressionContext::default());
-        if !self.at(TokenKind::Dot) {
-            return first.parsed(&mut self.storage);
-        }
-
         let snapshot = self.name_buffer.len();
-        self.name_buffer.push_str(self.storage.name(first.id));
+        // `import pkg.sub` binds `pkg`, so its first component must be interned.
+        // A `from pkg.sub import value` statement only needs the full module name.
+        if matches!(style, ImportStyle::ImportFrom)
+            && self.at(TokenKind::Identifier)
+            && !self.tokens.current_flags().is_non_ascii_identifier()
+        {
+            let range = self.current_token_range();
+            let text = self.current_token_text();
+            self.bump(TokenKind::Identifier);
+            if !self.at(TokenKind::Dot) {
+                return build::Identifier {
+                    id: self.storage.intern_name(text),
+                    range,
+                }
+                .parsed(&mut self.storage);
+            }
+            self.name_buffer.push_str(text);
+        } else {
+            let first = self.parse_identifier_with_context(ExpressionContext::default());
+            if !self.at(TokenKind::Dot) {
+                return first.parsed(&mut self.storage);
+            }
+            self.name_buffer.push_str(self.storage.name(first.id));
+        }
         let mut progress = ParserProgress::default();
 
         while self.eat(TokenKind::Dot) {
