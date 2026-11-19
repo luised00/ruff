@@ -720,7 +720,7 @@ impl Builder {
                 names: Vec::with_capacity(estimated / 8),
                 ..Ast::default()
             },
-            name_ids: HashTable::with_capacity(estimated / 8),
+            name_ids: HashTable::with_capacity(estimated * 3 / 8),
             scratch: Vec::new(),
         }
     }
