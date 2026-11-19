@@ -185,6 +185,7 @@ impl ListItem for ArgumentId {
 impl Element for ArgumentId {
     type Item<'a> = super::ArgOrKeyword<'a>;
 
+    #[inline]
     fn read(ast: &Ast, word: u32) -> Self::Item<'_> {
         let node: super::SyntaxNode<'_> = ast.child(u64::from(word));
         if let Some(keyword) = node.cast::<crate::Keyword>() {
