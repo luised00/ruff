@@ -3295,7 +3295,7 @@ impl<'src> Parser<'src> {
         &mut self,
         start: TextSize,
         function_kind: FunctionKind,
-    ) -> id::ParameterWithDefault {
+    ) -> build::ParameterWithDefault {
         let parameter = self.parse_parameter(start, function_kind, AllowStarAnnotation::No);
 
         let default = if self.eat(TokenKind::Equal) {
@@ -3330,7 +3330,6 @@ impl<'src> Parser<'src> {
             parameter: parameter.id,
             default: default.map(|node| node.id),
         }
-        .parsed(&mut self.storage)
     }
 
     /// Parses a parameter list for the given function kind.
@@ -3569,10 +3568,12 @@ impl<'src> Parser<'src> {
                 }
                 _ if parser.at_identifier_or_soft_keyword() => {
                     let param = parser.parse_parameter_with_default(param_start, function_kind);
+                    let has_default = param.default.is_some();
+                    let param = param.parsed(&mut parser.storage);
 
                     // TODO(dhruvmanila): Pyright seems to only highlight the first non-default argument
                     // https://github.com/microsoft/pyright/blob/3b70417dd549f6663b8f86a76f75d8dfd450f4a8/packages/pyright-internal/src/parser/parser.ts#L2038-L2042
-                    if param.view(&parser.storage).default().is_none()
+                    if !has_default
                         && seen_default_param
                         && !seen_keyword_only_separator
                         && !seen_vararg
@@ -3586,7 +3587,7 @@ impl<'src> Parser<'src> {
                         parser.add_error(ParseErrorType::NonDefaultParamAfterDefaultParam, param);
                     }
 
-                    seen_default_param |= param.view(&parser.storage).default().is_some();
+                    seen_default_param |= has_default;
 
                     if seen_keyword_only_separator {
                         seen_keyword_only_param_after_separator = true;

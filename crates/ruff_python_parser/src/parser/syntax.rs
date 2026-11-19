@@ -216,7 +216,6 @@ pub(crate) type Mod = Node<ast::kind::Mod>;
 pub(crate) type ModExpression = Node<ast::kind::ModExpression>;
 pub(crate) type ModModule = Node<ast::kind::ModModule>;
 pub(crate) type Parameter = Node<ast::kind::Parameter>;
-pub(crate) type ParameterWithDefault = Node<ast::kind::ParameterWithDefault>;
 pub(crate) type Parameters = Node<ast::kind::Parameters>;
 pub(crate) type Pattern = Node<ast::kind::Pattern>;
 pub(crate) type PatternMatchClass = Node<ast::kind::PatternMatchClass>;
