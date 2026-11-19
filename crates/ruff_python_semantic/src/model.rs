@@ -3287,6 +3287,11 @@ impl<'a> ResolvedNames<'a> {
             return;
         }
 
+        self.insert_by_offset(name, binding);
+    }
+
+    #[cold]
+    fn insert_by_offset(&mut self, name: ast::ExprName<'_>, binding: BindingId) {
         self.offsets();
         if let Some(map) = self.by_offset.get_mut() {
             // A foreign lookup can initialize the offset map through a shared reference.
