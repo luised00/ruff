@@ -738,8 +738,8 @@ impl<'src> Parser<'src> {
                 // from x import a.
                 // from x import a.b
                 // from x import a, b.c, d, e.f, g
+                seen_star_import |= parser.at(TokenKind::Star);
                 let alias = parser.parse_alias(ImportStyle::ImportFrom);
-                seen_star_import |= alias.view(&parser.storage).name().id() == "*";
                 parser.alias_scratch.push(alias.id);
             },
         );
